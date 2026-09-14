@@ -1,0 +1,23 @@
+# Secrets / local notes
+.env
+note.txt
+
+# Claude Code local session data
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Vector store data (regenerate via ingest.py)
+chroma_db/
+
+# Logs
+*.log
+
+# OS
+.DS_Store

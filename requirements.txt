@@ -1,0 +1,7 @@
+python-telegram-bot==22.8
+google-genai==2.23.0
+chromadb==1.5.9
+requests==2.32.3
+python-dotenv==1.0.1
+numpy<2
+sentence-transformers==3.0.1
