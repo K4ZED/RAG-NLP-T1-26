@@ -148,17 +148,29 @@ def retrieve(query: str, top_k: int = config.RETRIEVAL_TOP_K) -> list[dict]:
     return hits
 
 
+# If the primary model is overloaded (503), rotate to a different model
+# instead of retrying the same busy one - much faster to get an answer.
+GEMINI_FALLBACK_MODELS = [
+    m for m in ("gemini-flash-latest", "gemini-flash-lite-latest", "gemini-pro-latest")
+    if m != config.GEMINI_MODEL
+]
+
+
 def _generate_with_retry(prompt: str, max_retries: int = 4):
-    delay = 3
+    models_to_try = [config.GEMINI_MODEL, *GEMINI_FALLBACK_MODELS]
+    delay = 2
+    last_error = None
     for attempt in range(max_retries):
+        model = models_to_try[attempt % len(models_to_try)]
         try:
-            return _client.models.generate_content(model=config.GEMINI_MODEL, contents=prompt)
-        except RETRYABLE_EXCEPTIONS:
+            return _client.models.generate_content(model=model, contents=prompt)
+        except RETRYABLE_EXCEPTIONS as e:
+            last_error = e
             if attempt < max_retries - 1:
                 time.sleep(delay)
-                delay = min(delay * 2, 30)
+                delay = min(delay * 2, 20)
                 continue
-            raise
+    raise last_error
 
 
 def answer(query: str) -> str:
