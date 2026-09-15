@@ -1,118 +1,127 @@
-# Bot Telegram RAG — Data Ekonomi Jawa Tengah (BPS)
+# Bot Telegram RAG untuk Data Ekonomi Jawa Tengah
 
-Bot Telegram yang menjawab pertanyaan seputar **data ekonomi Provinsi Jawa Tengah**
-menggunakan pola **RAG (Retrieval-Augmented Generation)**: data resmi diambil dari
-**BPS Web API**, disimpan sebagai vektor di **ChromaDB**, lalu dijawab secara natural
-oleh **Gemini** berdasarkan data yang relevan saja (bukan hasil karangan model).
+Ini bot Telegram yang bisa diajak ngobrol soal data ekonomi Provinsi Jawa
+Tengah. Datanya asli dari BPS (Badan Pusat Statistik), bukan karangan model.
+Caranya pakai pola RAG (Retrieval-Augmented Generation): setiap ada
+pertanyaan, bot mencari dulu data BPS yang paling relevan, baru minta Gemini
+menjelaskan angka-angka itu dengan bahasa yang natural.
 
-## Arsitektur
+## Cara kerjanya, singkatnya
 
-```
-BPS Web API  ─▶  ingest.py  ─▶  ChromaDB (vector store, lokal)
-                                        │
-Telegram user ─▶ bot.py ─▶ rag_engine.py ┘─▶ retrieve top-k dokumen relevan
-                                        └─▶ Gemini (generate_content) ─▶ jawaban
-```
+1. `ingest.py` narik data ekonomi Jawa Tengah dari BPS Web API dan
+   nyimpennya ke ChromaDB (database vektor lokal).
+2. User kirim pertanyaan ke bot Telegram.
+3. Bot mencari dokumen BPS yang paling cocok dengan pertanyaan itu
+   (retrieval).
+4. Dokumen yang ketemu dikirim ke Gemini sebagai konteks, lalu Gemini
+   menyusun jawabannya.
 
-- **`bps_client.py`** — klien BPS Web API (subject → var → tahun → data). BPS
-  mengenkode nilai data dalam key gabungan tanpa separator
-  (`vervar+var_id+turvar+th_id+turtahun`); modul ini mendekodenya dengan
-  merekonstruksi kandidat key dari kombinasi metadata yang dikembalikan API,
-  bukan mem-parsing string-nya secara langsung (sudah divalidasi 100% akurat
-  terhadap data live).
-- **`ingest.py`** — mengambil semua variabel ekonomi Jawa Tengah (domain BPS
-  `3300`) untuk subjek kategori "Ekonomi dan Perdagangan", menyaring variabel
-  yang datanya sudah usang/discontinued, memecah tiap variabel jadi dokumen
-  per kategori/sektor (vervar), lalu meng-index ke ChromaDB.
-- **`rag_engine.py`** — logika embedding + retrieval + generation. Mendukung
-  dua backend embedding yang bisa dipilih lewat `.env` (lihat di bawah).
-- **`bot.py`** — handler Telegram: `/start` menampilkan menu tombol topik,
-  pesan teks bebas dijawab lewat RAG, sapaan ringan (halo/hai/tes) tidak
-  masuk ke pipeline RAG.
-- **`main.py`** — entry point; melakukan "pemanasan" model embedding saat
-  start supaya pertanyaan pertama user tidak kena delay loading model.
+## Isi tiap file
 
-## Setup
+- `bps_client.py`: yang ngobrol langsung ke BPS Web API (ambil daftar
+  subjek, variabel, tahun, sampai data mentahnya). BPS nyimpen nilai data
+  dalam kode gabungan angka tanpa pemisah, jadi modul ini punya fungsi
+  khusus buat "menerjemahkan" kode itu balik jadi data yang bisa dibaca.
+  Sudah dites dan cocok 100% dengan data asli.
+- `ingest.py`: script yang benar-benar narik semua variabel ekonomi Jawa
+  Tengah, nyaring yang datanya udah gak update lagi, terus masukin ke
+  ChromaDB.
+- `rag_engine.py`: inti dari sistem RAG. Ngurusin embedding (ubah teks jadi
+  angka biar bisa dicari), pencarian dokumen, dan minta Gemini bikin
+  jawaban.
+- `bot.py`: bagian yang ngobrol sama Telegram. Ada menu tombol pas
+  `/start`, dan sapaan santai kayak "halo" gak akan dianggap pertanyaan
+  data.
+- `main.py`: buat nyalain bot. Model embeddingnya dipanasin dulu di sini
+  biar pertanyaan pertama user gak nunggu lama.
+
+## Cara jalanin
+
+Siapin dulu environment Python (pakai Python 3.11, soalnya beberapa
+library yang dipakai belum stabil di versi Python terbaru):
 
 ```bash
-python3.11 -m venv .venv        # pakai Python 3.11 (chromadb belum stabil di 3.14)
+python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env            # isi API key BPS, Gemini, dan token bot Telegram
+cp .env.example .env
 ```
 
-### Environment variables (`.env`)
+Isi file `.env` dengan API key kamu sendiri (BPS, Gemini, Token bot
+Telegram). Detail tiap variabelnya:
 
-| Variabel | Keterangan |
+| Variabel | Buat apa |
 |---|---|
-| `BPS_API_KEY` | API key dari [webapi.bps.go.id](https://webapi.bps.go.id) |
-| `GEMINI_API_KEY` | API key dari Google AI Studio |
-| `TELEGRAM_BOT_TOKEN` | Token dari @BotFather |
-| `BPS_DOMAIN` | Kode wilayah BPS (`3300` = Jawa Tengah) |
-| `GEMINI_MODEL` | Model generatif utama (default `gemini-flash-latest`) |
-| `EMBEDDING_BACKEND` | `local` (gratis, offline, default) atau `gemini` (API, kena kuota harian) |
-| `LOCAL_EMBEDDING_MODEL` | Model sentence-transformers untuk backend `local` |
-| `CHROMA_DIR` / `CHROMA_COLLECTION` | Lokasi & nama koleksi vector store |
+| `BPS_API_KEY` | key dari webapi.bps.go.id |
+| `GEMINI_API_KEY` | key dari Google AI Studio |
+| `TELEGRAM_BOT_TOKEN` | token dari @BotFather |
+| `BPS_DOMAIN` | kode wilayah BPS, `3300` itu Jawa Tengah |
+| `GEMINI_MODEL` | model Gemini yang dipakai buat jawab |
+| `EMBEDDING_BACKEND` | `local` (gratis, jalan di komputer sendiri) atau `gemini` (pakai API, ada batas kuota harian) |
+| `LOCAL_EMBEDDING_MODEL` | model embedding lokal yang dipakai |
+| `CHROMA_DIR` / `CHROMA_COLLECTION` | lokasi database vektornya disimpan |
 
-## Menjalankan
+Setelah itu, masukkan data BPS ke database dengan menjalankan:
 
 ```bash
-# 1. Index data BPS ke ChromaDB (sekali di awal, ulangi kalau mau refresh data)
 python ingest.py --max-vars 9999 --years 4 --max-staleness-years 2
+```
 
-# 2. Jalankan bot
+Baru jalankan bot:
+
+```bash
 python main.py
 ```
 
-`ingest.py` menerima beberapa opsi:
+Opsi yang bisa dipakai di `ingest.py`:
 
-- `--subjects <id...>` — hanya ingest subjek BPS tertentu (default: semua
-  subjek kategori "Ekonomi dan Perdagangan")
-- `--max-vars N` — batasi jumlah variabel per subjek
-- `--years N` — jumlah tahun terakhir yang diambil per variabel
-- `--max-staleness-years N` — lewati variabel yang data terakhirnya lebih
-  tua dari N tahun dari sekarang (variabel discontinued/diganti seri baru)
+- `--subjects <id>`: kalau cuma mau ambil subjek BPS tertentu aja
+- `--max-vars N`: batasi berapa banyak variabel per subjek
+- `--years N`: berapa tahun terakhir yang mau diambil
+- `--max-staleness-years N`: lewati variabel yang udah lama gak diupdate
 
-## Keputusan desain & catatan penting
+## Hal-hal yang sempat jadi masalah (dan cara benerinnya)
 
-- **Embedding lokal vs Gemini**: awalnya pakai embedding Gemini
-  (`gemini-embedding-001`), tapi tier gratis-nya punya kuota harian ketat
-  (1000 request/hari) yang bikin bot berhenti total saat habis — termasuk
-  untuk menjawab pertanyaan biasa, bukan cuma saat ingest. Solusinya pindah
-  ke model lokal `paraphrase-multilingual-mpnet-base-v2` (via
-  `sentence-transformers`) yang jalan di CPU, gratis, dan terbukti lebih
-  tahan terhadap variasi ketikan/typo Bahasa Indonesia dibanding model
-  MiniLM yang lebih kecil. Backend tetap bisa dipindah ke Gemini lewat
-  `EMBEDDING_BACKEND=gemini` di `.env` kapan pun kuota tersedia lagi — kedua
-  backend disimpan di koleksi Chroma terpisah supaya tidak tercampur
-  (dimensi vektornya berbeda).
-- **Filter data usang**: BPS masih menyimpan banyak seri data yang sudah
-  digantikan seri baru (mis. IHK inflasi versi lama berhenti di 2018,
-  digantikan seri "2022=100"). Karena judul seri lama sering lebih cocok
-  secara leksikal dengan pertanyaan umum, retrieval bisa salah mengambil
-  data usang. `ingest.py` karena itu melewati variabel yang data
-  terakhirnya lebih tua dari `--max-staleness-years`.
-- **BPS kadang mengabaikan filter tahun**: request data dengan filter tahun
-  tertentu kadang tetap mengembalikan seluruh histori. `ingest.py`
-  menyaring ulang hasilnya di sisi klien supaya tahun yang tidak diminta
-  tidak ikut ter-index.
-- **Beberapa variabel BPS membatasi rentang tahun** (maksimal 2 tahun per
-  request untuk sebagian seri) — `ingest.py` otomatis mencoba dengan
-  rentang lebih kecil alih-alih melewati variabel tersebut sepenuhnya.
-- **Gaya jawaban**: prompt sistem di `rag_engine.py` secara eksplisit
-  meminta gaya ngobrol natural (bukan laporan dengan heading/list
-  bertingkat), dan identitas bot tetap sebagai "asisten data ekonomi Jawa
-  Tengah secara umum" terlepas dari potongan konteks spesifik yang
-  ter-retrieve untuk suatu pertanyaan.
-- **Ketahanan terhadap gangguan transient**: panggilan ke BPS dan Gemini
-  (embedding maupun generation) dibungkus retry dengan backoff. Untuk
-  `generate_content`, jika model utama sedang overload (503), bot otomatis
-  mencoba model Gemini lain sebagai fallback alih-alih menunggu model yang
-  sama berulang kali.
+**Kuota Gemini buat embedding cepat habis.** Awalnya semua embedding
+(dokumen maupun pertanyaan) dikirim ke Gemini, tapi tier gratisnya cuma
+kasih jatah 1000 request per hari. Begitu habis, bot langsung mati total,
+bahkan buat pertanyaan simpel sekalipun. Solusinya, embedding dipindah ke
+model lokal (`paraphrase-multilingual-mpnet-base-v2`) yang jalan gratis di
+komputer sendiri, dan ternyata malah lebih tahan sama typo dan variasi
+ketikan Bahasa Indonesia. Kalau suatu saat mau balik pakai Gemini, tinggal
+ganti `EMBEDDING_BACKEND` di `.env`, karena dua-duanya disimpan di tempat
+yang terpisah biar gak ketuker.
 
-## Struktur data yang di-index
+**Data BPS yang udah lama gak update ikut kebawa.** Banyak seri data BPS
+yang sebenarnya udah digantikan versi lebih baru, tapi judulnya masih mirip
+banget sama seri lama. Contohnya data inflasi versi lama yang berhenti di
+2018, padahal ada versi barunya yang datanya sampai sekarang. Karena
+judulnya mirip, pencarian dokumen kadang malah ambil yang lama. Makanya
+`ingest.py` sekarang otomatis skip variabel yang data terakhirnya udah
+terlalu tua.
 
-Tiap dokumen mewakili satu kombinasi variabel + kategori/sektor (vervar),
-berisi judul, satuan, catatan resmi BPS, dan daftar nilai per periode
-(tahun/triwulan/bulan). Metadata tersimpan bersama tiap dokumen untuk
-kebutuhan filtering/analisis (`var_id`, `subject`, `title`, `unit`, `vervar`).
+**BPS kadang gak nurut sama filter tahun yang diminta.** Kadang minta data
+2 tahun terakhir, tapi yang dibalikin malah semua tahun dari awal. Jadi
+sekarang ada penyaringan tambahan di kode sendiri, bukan cuma mengandalkan
+filter dari API BPS.
+
+**Beberapa variabel BPS cuma boleh diminta maksimal 2 tahun sekaligus.**
+Kalau minta lebih, permintaannya ditolak dan variabelnya jadi dilewati.
+Sekarang kalau kena batasan ini, `ingest.py` otomatis coba lagi dengan
+rentang tahun yang lebih kecil, bukan langsung nyerah.
+
+**Jawaban bot awalnya kaku kayak laporan.** Terlalu banyak heading, poin
+bernomor, dan tanda tebal di mana-mana. Sekarang instruksi sistem untuk
+Gemini diubah supaya jawabannya lebih kayak ngobrol biasa, bukan bikin
+laporan data.
+
+**Kalau Gemini lagi sibuk.** Kadang server Gemini overload dan balikin
+error sementara. Bot sekarang otomatis coba lagi, dan kalau model utamanya
+masih sibuk juga, dia coba pindah ke model Gemini lain daripada nunggu
+model yang sama terus-terusan.
+
+## Soal data yang disimpan
+
+Setiap dokumen di database itu isinya satu variabel BPS untuk satu
+kategori/sektor tertentu, lengkap dengan judul, satuan, catatan resmi dari
+BPS, dan nilai datanya per periode (tahun, triwulan, atau bulan).
